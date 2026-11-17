@@ -142,13 +142,6 @@ jobs:
       - name: Build dist
         run: pnpm build
 
-      - name: Upload dist artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-build
-          path: dist/
-          retention-days: 1
-
   # Validate npm pack contents after build (only on push to main, not PRs).
   release-check:
     needs: [docs-scope, build-artifacts]
@@ -165,16 +158,16 @@ jobs:
         with:
           install-bun: "false"
 
-      - name: Download dist artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: dist-build
-          path: dist/
+      - name: Build release contents from the checked-out commit
+        run: pnpm build
 
       - name: Check release contents
         run: pnpm release:check
 
   checks:
+    permissions:
+      contents: read
+      id-token: write
     needs: [docs-scope, changed-scope, check]
     if: needs.docs-scope.outputs.docs_only != 'true' && (github.event_name == 'push' || needs.changed-scope.outputs.run_node == 'true')
     runs-on: blacksmith-16vcpu-ubuntu-2404
@@ -230,14 +223,9 @@ jobs:
           node scripts/vitest-slowest.mjs --dir "$OPENCLAW_VITEST_REPORT_DIR" --top 50 --out "$RUNNER_TEMP/vitest-slowest.md" > /dev/null
           echo "Slowest test summary written to $RUNNER_TEMP/vitest-slowest.md"
 
-      - name: Upload vitest reports
+      - name: Preserve vitest reports on compute
         if: (github.event_name != 'push' || matrix.runtime != 'bun') && matrix.task == 'test' && matrix.runtime == 'node'
-        uses: actions/upload-artifact@v4
-        with:
-          name: vitest-reports-${{ runner.os }}-${{ matrix.runtime }}
-          path: |
-            ${{ env.OPENCLAW_VITEST_REPORT_DIR }}
-            ${{ runner.temp }}/vitest-slowest.md
+        run: python scripts/ci/store_report.py vitest-linux-node "$OPENCLAW_VITEST_REPORT_DIR" "$RUNNER_TEMP/vitest-slowest.md"
 
   # Types, lint, and format check.
   check:
@@ -263,6 +251,9 @@ jobs:
   # results as artifacts for later triage before we enable hard gates.
   # Temporarily disabled in CI while we process initial findings.
   deadcode:
+    permissions:
+      contents: read
+      id-token: write
     name: dead-code report
     needs: [docs-scope, changed-scope]
     # if: needs.docs-scope.outputs.docs_only != 'true' && (github.event_name == 'push' || needs.changed-scope.outputs.run_node == 'true')
@@ -292,11 +283,10 @@ jobs:
       - name: Run ${{ matrix.tool }} dead-code scan
         run: ${{ matrix.command }}
 
-      - name: Upload dead-code results
-        uses: actions/upload-artifact@v4
-        with:
-          name: dead-code-${{ matrix.tool }}-${{ github.run_id }}
-          path: .artifacts/deadcode
+      - name: Preserve dead-code results on compute
+        env:
+          REPORT_SLOT: deadcode-${{ matrix.tool }}
+        run: python scripts/ci/store_report.py "$REPORT_SLOT" .artifacts/deadcode
 
   # Validate docs (format, lint, broken links) only when docs files changed.
   check-docs:
@@ -398,6 +388,9 @@ jobs:
         run: pre-commit run --all-files pnpm-audit-prod
 
   checks-windows:
+    permissions:
+      contents: read
+      id-token: write
     needs: [docs-scope, changed-scope, build-artifacts, check]
     if: needs.docs-scope.outputs.docs_only != 'true' && (github.event_name == 'push' || needs.changed-scope.outputs.run_node == 'true')
     runs-on: blacksmith-16vcpu-windows-2025
@@ -447,20 +440,6 @@ jobs:
             Write-Warning "Failed to apply Defender exclusions, continuing. $($_.Exception.Message)"
           }
 
-      - name: Download dist artifact (lint lane)
-        if: matrix.task == 'lint'
-        uses: actions/download-artifact@v4
-        with:
-          name: dist-build
-          path: dist/
-
-      - name: Verify dist artifact (lint lane)
-        if: matrix.task == 'lint'
-        run: |
-          set -euo pipefail
-          test -s dist/index.js
-          test -s dist/plugin-sdk/index.js
-
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -491,6 +470,13 @@ jobs:
           pnpm -v
           pnpm install --frozen-lockfile --ignore-scripts=false --config.engine-strict=false --config.enable-pre-post-scripts=true || pnpm install --frozen-lockfile --ignore-scripts=false --config.engine-strict=false --config.enable-pre-post-scripts=true
 
+      - name: Build and verify dist for Windows lint
+        if: matrix.task == 'lint'
+        run: |
+          pnpm build
+          test -s dist/index.js
+          test -s dist/plugin-sdk/index.js
+
       - name: Configure vitest JSON reports
         if: matrix.task == 'test'
         run: echo "OPENCLAW_VITEST_REPORT_DIR=$RUNNER_TEMP/vitest-reports" >> "$GITHUB_ENV"
@@ -504,14 +490,9 @@ jobs:
           node scripts/vitest-slowest.mjs --dir "$OPENCLAW_VITEST_REPORT_DIR" --top 50 --out "$RUNNER_TEMP/vitest-slowest.md" > /dev/null
           echo "Slowest test summary written to $RUNNER_TEMP/vitest-slowest.md"
 
-      - name: Upload vitest reports
+      - name: Preserve vitest reports on compute
         if: matrix.task == 'test'
-        uses: actions/upload-artifact@v4
-        with:
-          name: vitest-reports-${{ runner.os }}-${{ matrix.runtime }}
-          path: |
-            ${{ env.OPENCLAW_VITEST_REPORT_DIR }}
-            ${{ runner.temp }}/vitest-slowest.md
+        run: python scripts/ci/store_report.py vitest-windows-node "$OPENCLAW_VITEST_REPORT_DIR" "$RUNNER_TEMP/vitest-slowest.md"
 
   # Consolidated macOS job: runs TS tests + Swift lint/build/test sequentially
   # on a single runner. GitHub limits macOS concurrent jobs to 5 per org;
