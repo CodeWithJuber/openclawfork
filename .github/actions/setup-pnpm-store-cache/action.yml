@@ -1,14 +1,10 @@
-name: Setup pnpm + store cache
-description: Prepare pnpm via corepack and restore pnpm store cache.
+name: Setup pnpm
+description: Prepare pnpm via corepack.
 inputs:
   pnpm-version:
     description: pnpm version to activate via corepack.
     required: false
     default: "10.23.0"
-  cache-key-suffix:
-    description: Suffix appended to the cache key.
-    required: false
-    default: "node22"
 runs:
   using: composite
   steps:
@@ -32,16 +28,3 @@ runs:
           sleep $((attempt * 10))
         done
         exit 1
-
-    - name: Resolve pnpm store path
-      id: pnpm-store
-      shell: bash
-      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-    - name: Restore pnpm store cache
-      uses: actions/cache@v4
-      with:
-        path: ${{ steps.pnpm-store.outputs.path }}
-        key: ${{ runner.os }}-pnpm-store-${{ inputs.cache-key-suffix }}-${{ hashFiles('pnpm-lock.yaml') }}
-        restore-keys: |
-          ${{ runner.os }}-pnpm-store-${{ inputs.cache-key-suffix }}-
