@@ -467,11 +467,10 @@ jobs:
           node-version: 22.x
           check-latest: true
 
-      - name: Setup pnpm + cache store
+      - name: Setup pnpm
         uses: ./.github/actions/setup-pnpm-store-cache
         with:
           pnpm-version: "10.23.0"
-          cache-key-suffix: "node22"
 
       - name: Runtime versions
         run: |
@@ -558,14 +557,6 @@ jobs:
         run: |
           swiftlint --config .swiftlint.yml
           swiftformat --lint apps/macos/Sources --config .swiftformat
-
-      - name: Cache SwiftPM
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Caches/org.swift.swiftpm
-          key: ${{ runner.os }}-swiftpm-${{ hashFiles('apps/macos/Package.resolved') }}
-          restore-keys: |
-            ${{ runner.os }}-swiftpm-
 
       - name: Swift build (release)
         run: |
@@ -784,6 +775,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
+          cache-disabled: true
           gradle-version: 8.11.1
 
       - name: Install Android SDK packages
